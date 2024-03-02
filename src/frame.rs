@@ -125,8 +125,6 @@ fn get_second_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
 
 // Get Number
 fn get_number(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
-    use atoi::atoi;
-
     let line = get_line(src)?;
 
     atoi::<u64>(line).map_or(
