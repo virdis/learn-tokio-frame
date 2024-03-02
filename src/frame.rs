@@ -155,3 +155,14 @@ fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
     }
     Err(Error::Incomplete)
 }
+#[test]
+fn test_get_operands() {
+    let buf = &b"123:456\r\n"[..];
+    let mut cursor = Cursor::new(buf);
+    let first = get_first_operand(&mut cursor);
+
+    assert_eq!(123, first.unwrap());
+    let second = get_second_operand(&mut cursor);
+
+    assert_eq!(456, second.unwrap());
+}
