@@ -8,6 +8,7 @@
 
 use std::{io::Cursor, u64};
 
+use atoi::atoi;
 use tokio_util::bytes::Buf;
 
 // A frame for our own protocol.
@@ -72,6 +73,54 @@ fn get_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
         return Err(Error::Incomplete);
     }
     Ok(src.get_u8())
+}
+
+fn get_first_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
+    let start = src.position() as usize;
+
+    // last byte position
+    let end = src.get_ref().len() - 1;
+
+    for i in start..end {
+        if src.get_ref()[i] == b':' {
+            // set the position to `:`
+            src.set_position((i + 1) as u64);
+            let fbytes = &src.get_ref()[start..i];
+            return atoi::<u64>(fbytes).map_or(
+                Err(Error::ErrMessage(
+                    "Protocol error, invalid frame".to_string(),
+                )),
+                |v| Ok(v),
+            );
+        }
+    }
+    return Err(Error::ErrMessage(
+        "Protocol error, invalid frame".to_string(),
+    ));
+}
+
+fn get_second_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
+    let start = src.position() as usize;
+
+    // last byte position
+    let end = src.get_ref().len() - 1;
+
+    for i in start..end {
+        if src.get_ref()[i] == b'\r' && src.get_ref()[i + 1] == b'\n' {
+            // set the position to `\n`
+            src.set_position((i + 2) as u64);
+            let fbytes = &src.get_ref()[start..i];
+            return atoi::<u64>(fbytes).map_or(
+                Err(Error::ErrMessage(
+                    "Protocol error, invalid frame".to_string(),
+                )),
+                |v| Ok(v),
+            );
+        }
+    }
+    return Err(Error::ErrMessage(
+        "Protocol error, invalid frame".to_string(),
+    ));
 }
 
 // Get Number
