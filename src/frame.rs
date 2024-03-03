@@ -2,10 +2,30 @@
 // Keep the design simple.
 
 // Protocol Design
-// Lets create a new protocol with
-// client / server calculator
+// Lets create a new protocol client / server calculator
 //
-
+// Protocol Details:
+// To encode the Addition operation the following bytes
+// are sent.
+// `+` followed by "{num1}:{num2}\r\n"
+// num1 and num2 are numbers represented by `u64`.
+// The end of the payload is represented by
+// `\r\n`
+//
+// Similarly to encode the Subtraction operation the following
+// bytes are sent.
+// `-` followed by "{num1}:{num2}\r\n"
+// num1 and num2 are numbers represented by `u64`.
+// The end of the payload is represented by
+// `\r\n`
+//
+// Similarly to encode the Multiplication operation the following
+// bytes are sent.
+// `*` followed by "{num1}:{num2}\r\n"
+// num1 and num2 are numbers represented by `u64`.
+// The end of the payload is represented by
+// `\r\n`
+//
 use std::{io::Cursor, u64};
 
 use atoi::atoi;
@@ -14,8 +34,9 @@ use tokio_util::bytes::Buf;
 // A frame for our own protocol.
 #[derive(Clone, Debug)]
 pub enum Frame {
-    Integer(u64),
-    StrData(String),
+    Addition(u64, u64),
+    Subtraction(u64, u64),
+    Multiplication(u64, u64),
     Array(Vec<Frame>),
 }
 
@@ -35,13 +56,16 @@ impl Frame {
 
     pub fn check(src: &mut Cursor<&[u8]>) -> Result<(), Error> {
         match get_u8(src)? {
-            b'%' => {
-                // free form bytes
+            b'+' => {
                 get_line(src)?;
                 Ok(())
             }
-            b':' => {
-                let _ = get_number(src)?;
+            b'-' => {
+                get_line(src)?;
+                Ok(())
+            }
+            b'*' => {
+                get_line(src)?;
                 Ok(())
             }
             default => Err(Error::ErrMessage(format!(
@@ -53,15 +77,20 @@ impl Frame {
 
     pub fn parse(src: &mut Cursor<&[u8]>) -> Result<Frame, Error> {
         match get_u8(src)? {
-            b':' => {
-                let num = get_number(src)?;
-                Ok(Frame::Integer(num))
+            b'+' => {
+                let first_opereand = get_first_operand(src)?;
+                let second_operand = get_second_operand(src)?;
+                Ok(Frame::Addition(first_opereand, second_operand))
             }
-            b'%' => {
-                let line = get_line(src)?.to_vec();
-                let string = String::from_utf8(line)
-                    .map_err(|_| Error::ErrMessage("Failed to parse the string".to_string()))?;
-                Ok(Frame::StrData(string))
+            b'-' => {
+                let first_opereand = get_first_operand(src)?;
+                let second_operand = get_second_operand(src)?;
+                Ok(Frame::Subtraction(first_opereand, second_operand))
+            }
+            b'*' => {
+                let first_opereand = get_first_operand(src)?;
+                let second_operand = get_second_operand(src)?;
+                Ok(Frame::Multiplication(first_opereand, second_operand))
             }
             _ => !unimplemented!(),
         }
@@ -123,18 +152,6 @@ fn get_second_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
     ));
 }
 
-// Get Number
-fn get_number(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
-    let line = get_line(src)?;
-
-    atoi::<u64>(line).map_or(
-        Err(Error::ErrMessage(
-            "Protocol error, invalid frame".to_string(),
-        )),
-        |v| Ok(v),
-    )
-}
-
 // Find line terminating character = `<` `>`
 fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
     let start = src.position() as usize;
@@ -144,8 +161,8 @@ fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
 
     // Search for the termination pattern
     for i in start..end {
-        if src.get_ref()[i] == b'<' && src.get_ref()[i + 1] == b'>' {
-            // update the position after `>`
+        if src.get_ref()[i] == b'\r' && src.get_ref()[i + 1] == b'\n' {
+            // update the position after `\n`
             src.set_position((i + 2) as u64);
 
             return Ok(&src.get_ref()[start..i]);
@@ -164,4 +181,22 @@ fn test_get_operands() {
     let second = get_second_operand(&mut cursor);
 
     assert_eq!(456, second.unwrap());
+}
+
+#[test]
+fn test_parse() {
+    let buf = &b"+123:456\r\n"[..];
+
+    let mut cursor = Cursor::new(buf);
+    let frame = Frame::parse(&mut cursor);
+    assert!(frame.is_ok());
+}
+
+#[test]
+fn test_parse_fail() {
+    let buf = &b"+123456\r\n"[..];
+
+    let mut cursor = Cursor::new(buf);
+    let frame = Frame::parse(&mut cursor);
+    assert!(frame.is_err());
 }
