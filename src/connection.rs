@@ -1,6 +1,10 @@
 use std::io::Cursor;
 
-use tokio::{io::BufWriter, net::TcpStream, select};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, BufWriter},
+    net::TcpStream,
+    select,
+};
 
 use tokio_util::bytes::{Buf, BytesMut};
 
@@ -71,5 +75,83 @@ impl Connection {
 
             Err(e) => Err(e.into()),
         }
+    }
+
+    pub async fn read_frame(&mut self) -> Result<Option<Frame>, Error> {
+        loop {
+            if let Some(frame) = self.parse_frame()? {
+                return Ok(Some(frame));
+            }
+
+            // There is not enough data to read a frame. Attempt to
+            // read more data from the socket.
+            //
+            // `0` returned means end of the stream.
+            if 0 == self.stream.read_buf(&mut self.buffer).await.map_or(
+                Err(Error::ErrMessage("failed to read from socket".to_string())),
+                |v| Ok(v),
+            )? {
+                // The remote closed the connection. For this to be a clean shutdown
+                // no data should be in the buffer. If there is data, that means
+                // the peer closed the socket while sending the frame.
+                if self.buffer.is_empty() {
+                    return Ok(None);
+                } else {
+                    return Err(Error::ErrMessage("connection reset by peer".into()));
+                }
+            }
+        }
+    }
+
+    // TODO: cleanup and refactor the internal of each match arm
+    pub async fn write_frame(&mut self, frame: &Frame) -> Result<(), Error> {
+        match frame {
+            Frame::Addition(x, y) => {
+                self.stream.write_u8(b'+').await.map_or(
+                    Err(Error::ErrMessage("(+) failed to write byte".to_string())),
+                    |v| Ok(v),
+                )?;
+                let data = format!("{}:{}\r\n", x, y);
+                self.stream.write_all(data.as_bytes()).await.map_or(
+                    Err(Error::ErrMessage(
+                        "(+) failed to write all bytes".to_string(),
+                    )),
+                    |v| Ok(v),
+                )?;
+            }
+            Frame::Subtraction(x, y) => {
+                self.stream.write_u8(b'-').await.map_or(
+                    Err(Error::ErrMessage("(-) failed to write byte".to_string())),
+                    |v| Ok(v),
+                )?;
+                let data = format!("{}:{}\r\n", x, y);
+                self.stream.write_all(data.as_bytes()).await.map_or(
+                    Err(Error::ErrMessage(
+                        "(-) failed to write all bytes".to_string(),
+                    )),
+                    |v| Ok(v),
+                )?;
+            }
+            Frame::Multiplication(x, y) => {
+                self.stream.write_u8(b'*').await.map_or(
+                    Err(Error::ErrMessage("(*) failed to write byte".to_string())),
+                    |v| Ok(v),
+                )?;
+                let data = format!("{}:{}\r\n", x, y);
+                self.stream.write_all(data.as_bytes()).await.map_or(
+                    Err(Error::ErrMessage(
+                        "(*) failed to write all bytes".to_string(),
+                    )),
+                    |v| Ok(v),
+                )?;
+            }
+        }
+        // write the encoded frame to socket
+        self.stream.flush().await.map_or(
+            Err(Error::ErrMessage(
+                "(*) failed to write all bytes".to_string(),
+            )),
+            |v| Ok(v),
+        )
     }
 }

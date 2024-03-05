@@ -37,7 +37,6 @@ pub enum Frame {
     Addition(u64, u64),
     Subtraction(u64, u64),
     Multiplication(u64, u64),
-    Array(Vec<Frame>),
 }
 
 #[derive(Debug)]
@@ -50,10 +49,6 @@ pub enum Error {
 }
 
 impl Frame {
-    pub fn array() -> Frame {
-        Frame::Array(vec![])
-    }
-
     pub fn check(src: &mut Cursor<&[u8]>) -> Result<(), Error> {
         match get_u8(src)? {
             b'+' => {
