@@ -1,14 +1,12 @@
-use std::io::Cursor;
+use crate::frame::{self, Frame};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
     net::TcpStream,
-    select,
 };
 
+use std::io::{self, Cursor, ErrorKind};
 use tokio_util::bytes::{Buf, BytesMut};
-
-use crate::{frame::Error, Frame};
 
 // Send and recieve `Frame` values from a remte peer.
 //
@@ -42,7 +40,8 @@ impl Connection {
     // Tries to parse the frame, if the buffer does not contain
     // enough data , `Ok(None)` is returned. If there is an
     // invalid frame and Err is returned.
-    pub fn parse_frame(&mut self) -> Result<Option<Frame>, Error> {
+    pub fn parse_frame(&mut self) -> crate::Result<Option<Frame>> {
+        use frame::Error::Incomplete;
         // Cursor is used to track the current location in the buffer.
         let mut buf = Cursor::new(&self.buffer[..]);
 
@@ -71,13 +70,13 @@ impl Connection {
                 // Return parsed frame.
                 Ok(Some(frame))
             }
-            Err(Error::Incomplete) => Ok(None),
+            Err(Incomplete) => Ok(None),
 
             Err(e) => Err(e.into()),
         }
     }
 
-    pub async fn read_frame(&mut self) -> Result<Option<Frame>, Error> {
+    pub async fn read_frame(&mut self) -> crate::Result<Option<Frame>> {
         loop {
             if let Some(frame) = self.parse_frame()? {
                 return Ok(Some(frame));
@@ -87,70 +86,64 @@ impl Connection {
             // read more data from the socket.
             //
             // `0` returned means end of the stream.
-            if 0 == self.stream.read_buf(&mut self.buffer).await.map_or(
-                Err(Error::ErrMessage("failed to read from socket".to_string())),
-                |v| Ok(v),
-            )? {
+            if 0 == self
+                .stream
+                .read_buf(&mut self.buffer)
+                .await
+                .map_or(Err("failed to read from socket".to_string()), |v| Ok(v))?
+            {
                 // The remote closed the connection. For this to be a clean shutdown
                 // no data should be in the buffer. If there is data, that means
                 // the peer closed the socket while sending the frame.
                 if self.buffer.is_empty() {
                     return Ok(None);
                 } else {
-                    return Err(Error::ErrMessage("connection reset by peer".into()));
+                    return Err("connection reset by peer".into());
                 }
             }
         }
     }
 
     // TODO: cleanup and refactor the internal of each match arm
-    pub async fn write_frame(&mut self, frame: &Frame) -> Result<(), Error> {
+    pub async fn write_frame(&mut self, frame: &Frame) -> Result<(), crate::Error> {
         match frame {
             Frame::Addition(x, y) => {
                 self.stream.write_u8(b'+').await.map_or(
-                    Err(Error::ErrMessage("(+) failed to write byte".to_string())),
+                    Err::<(), crate::Error>("(+) failed to write byte".into()),
                     |v| Ok(v),
                 )?;
                 let data = format!("{}:{}\r\n", x, y);
                 self.stream.write_all(data.as_bytes()).await.map_or(
-                    Err(Error::ErrMessage(
-                        "(+) failed to write all bytes".to_string(),
-                    )),
+                    Err::<(), crate::Error>("(+) failed to write all bytes".into()),
                     |v| Ok(v),
                 )?;
             }
             Frame::Subtraction(x, y) => {
                 self.stream.write_u8(b'-').await.map_or(
-                    Err(Error::ErrMessage("(-) failed to write byte".to_string())),
+                    Err::<(), crate::Error>("(-) failed to write byte".into()),
                     |v| Ok(v),
                 )?;
                 let data = format!("{}:{}\r\n", x, y);
                 self.stream.write_all(data.as_bytes()).await.map_or(
-                    Err(Error::ErrMessage(
-                        "(-) failed to write all bytes".to_string(),
-                    )),
+                    Err::<(), crate::Error>("(-) failed to write all bytes".into()),
                     |v| Ok(v),
                 )?;
             }
             Frame::Multiplication(x, y) => {
                 self.stream.write_u8(b'*').await.map_or(
-                    Err(Error::ErrMessage("(*) failed to write byte".to_string())),
+                    Err::<(), crate::Error>("(*) failed to write byte".into()),
                     |v| Ok(v),
                 )?;
                 let data = format!("{}:{}\r\n", x, y);
                 self.stream.write_all(data.as_bytes()).await.map_or(
-                    Err(Error::ErrMessage(
-                        "(*) failed to write all bytes".to_string(),
-                    )),
+                    Err::<(), crate::Error>("(*) failed to write all bytes".into()),
                     |v| Ok(v),
                 )?;
             }
         }
         // write the encoded frame to socket
         self.stream.flush().await.map_or(
-            Err(Error::ErrMessage(
-                "(*) failed to write all bytes".to_string(),
-            )),
+            Err(Box::new(io::Error::new(ErrorKind::Other, "oh no!"))),
             |v| Ok(v),
         )
     }

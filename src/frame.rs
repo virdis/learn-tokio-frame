@@ -26,7 +26,7 @@
 // The end of the payload is represented by
 // `\r\n`
 //
-use std::{io::Cursor, u64};
+use std::{fmt, io::Cursor, u64};
 
 use atoi::atoi;
 use tokio_util::bytes::Buf;
@@ -45,7 +45,18 @@ pub enum Error {
     Incomplete,
 
     // Non supported encoding.
-    ErrMessage(String),
+    ErrMessage(crate::Error),
+}
+
+impl std::error::Error for Error {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Incomplete => "stream ended early".fmt(fmt),
+            Error::ErrMessage(err) => err.fmt(fmt),
+        }
+    }
 }
 
 impl Frame {
@@ -63,10 +74,7 @@ impl Frame {
                 get_line(src)?;
                 Ok(())
             }
-            default => Err(Error::ErrMessage(format!(
-                "protocol error, invalid type byte {}",
-                default
-            ))),
+            default => Err(format!("protocol error, invalid type byte {}", default).into()),
         }
     }
 
@@ -110,17 +118,11 @@ fn get_first_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
             // set the position to `:`
             src.set_position((i + 1) as u64);
             let fbytes = &src.get_ref()[start..i];
-            return atoi::<u64>(fbytes).map_or(
-                Err(Error::ErrMessage(
-                    "Protocol error, invalid frame".to_string(),
-                )),
-                |v| Ok(v),
-            );
+            return atoi::<u64>(fbytes)
+                .map_or(Err("Protocol error, invalid frame".into()), |v| Ok(v));
         }
     }
-    return Err(Error::ErrMessage(
-        "Protocol error, invalid frame".to_string(),
-    ));
+    return Err("Protocol error, invalid frame".into());
 }
 
 fn get_second_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
@@ -134,17 +136,11 @@ fn get_second_operand(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
             // set the position to `\n`
             src.set_position((i + 2) as u64);
             let fbytes = &src.get_ref()[start..i];
-            return atoi::<u64>(fbytes).map_or(
-                Err(Error::ErrMessage(
-                    "Protocol error, invalid frame".to_string(),
-                )),
-                |v| Ok(v),
-            );
+            return atoi::<u64>(fbytes)
+                .map_or(Err("Protocol error, invalid frame".into()), |v| Ok(v));
         }
     }
-    return Err(Error::ErrMessage(
-        "Protocol error, invalid frame".to_string(),
-    ));
+    return Err("Protocol error, invalid frame".into());
 }
 
 // Find line terminating character = `<` `>`
@@ -166,6 +162,17 @@ fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
     Err(Error::Incomplete)
 }
 
+impl From<String> for Error {
+    fn from(src: String) -> Error {
+        Error::ErrMessage(src.into())
+    }
+}
+
+impl From<&str> for Error {
+    fn from(src: &str) -> Error {
+        src.to_string().into()
+    }
+}
 #[test]
 fn test_get_operands() {
     let buf = &b"123:456\r\n"[..];
