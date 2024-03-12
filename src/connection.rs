@@ -140,6 +140,16 @@ impl Connection {
                     |v| Ok(v),
                 )?;
             }
+            Frame::OpResult(r) => {
+                self.stream.write_u8(b'=').await.map_or(
+                    Err::<(), crate::Error>("(=) failed to write all bytes".into()),
+                    |v| Ok(v),
+                )?;
+                self.stream.write_u64(*r).await.map_or(
+                    Err::<(), crate::Error>("(=) failed to write all bytes".into()),
+                    |v| Ok(v),
+                )?;
+            }
         }
         // write the encoded frame to socket
         self.stream.flush().await.map_or(

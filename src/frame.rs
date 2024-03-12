@@ -37,6 +37,7 @@ pub enum Frame {
     Addition(u64, u64),
     Subtraction(u64, u64),
     Multiplication(u64, u64),
+    OpResult(u64),
 }
 
 #[derive(Debug)]
